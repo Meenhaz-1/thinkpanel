@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { TextArea } from "@/components/ui/textarea";
+import { isValidationApiError } from "@/lib/api-validation";
 import type {
   Persona,
   PersonaDraft,
@@ -24,6 +25,45 @@ type GeneratedPersonaState = PersonaDraft["generatedPersona"];
 type CreatePersonaResponse = {
   persona: PersonaGenerated;
 };
+
+type FieldErrorMap = {
+  description: string | null;
+};
+
+type FieldLabelProps = {
+  children: string;
+  help: string;
+  helpId: string;
+};
+
+function FieldLabel({ children, help, helpId }: FieldLabelProps) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="relative inline-flex items-center gap-2">
+      <span className="text-sm font-semibold text-foreground">{children}</span>
+      <button
+        type="button"
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border-subtle text-[10px] font-bold text-muted-foreground transition-colors hover:border-primary/35 hover:text-primary"
+        aria-expanded={isOpen}
+        aria-controls={helpId}
+        aria-label={`Help for ${children}`}
+        onClick={() => setIsOpen((currentValue) => !currentValue)}
+      >
+        i
+      </button>
+      {isOpen ? (
+        <div
+          id={helpId}
+          role="tooltip"
+          className="absolute left-0 top-full z-20 mt-2 w-72 rounded-2xl border border-border-subtle bg-white px-4 py-3 text-xs leading-5 text-muted-foreground shadow-[0_18px_40px_-28px_rgba(38,27,78,0.35)]"
+        >
+          {help}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function cloneGeneratedPersona(draft: PersonaDraft): GeneratedPersonaState {
   return {
@@ -80,7 +120,16 @@ function ListEditor({ label, values, onChange }: ListEditorProps) {
 
   return (
     <div className="space-y-3">
-      <label className="text-sm font-semibold text-foreground">{label}</label>
+      <FieldLabel
+        help={
+          label === "Goals"
+            ? "Write what this persona is trying to accomplish and protect."
+            : "Write what reliably frustrates this persona or makes them reject a product."
+        }
+        helpId={`${label.toLowerCase()}-help`}
+      >
+        {label}
+      </FieldLabel>
       <div className="space-y-3">
         {values.map((value, index) => (
           <div key={`${label}-${index}`} className="flex gap-3">
@@ -131,9 +180,12 @@ function LensEditor({ values, onChange }: LensEditorProps) {
 
   return (
     <div className="space-y-3">
-      <label className="text-sm font-semibold text-foreground">
+      <FieldLabel
+        help="Describe the criteria this persona uses to judge an idea and the tradeoff they are weighing."
+        helpId="evaluation-lens-help"
+      >
         Evaluation Lens
-      </label>
+      </FieldLabel>
       <div className="space-y-4">
         {values.map((value, index) => (
           <Card key={`${value.criterion || "lens"}-${index}`} tone="muted" className="space-y-3">
@@ -157,9 +209,12 @@ function LensEditor({ values, onChange }: LensEditorProps) {
 
             <div className="grid gap-3">
               <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                <FieldLabel
+                  help="Name the exact thing they judge first."
+                  helpId={`criterion-help-${index}`}
+                >
                   Criterion
-                </label>
+                </FieldLabel>
                 <Input
                   value={value.criterion}
                   onChange={(event) =>
@@ -168,9 +223,12 @@ function LensEditor({ values, onChange }: LensEditorProps) {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                <FieldLabel
+                  help="Explain why this criterion matters to this persona specifically."
+                  helpId={`why-it-matters-help-${index}`}
+                >
                   Why It Matters
-                </label>
+                </FieldLabel>
                 <TextArea
                   rows={2}
                   value={value.why_it_matters}
@@ -180,9 +238,12 @@ function LensEditor({ values, onChange }: LensEditorProps) {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                <FieldLabel
+                  help="State the downside, risk, or compromise they are weighing."
+                  helpId={`tradeoff-help-${index}`}
+                >
                   Tradeoff
-                </label>
+                </FieldLabel>
                 <TextArea
                   rows={2}
                   value={value.tradeoff}
@@ -223,7 +284,17 @@ export function PersonaBuilder({
   const [hasClearedDescription, setHasClearedDescription] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({
+    description: null,
+  });
   const isEditing = Boolean(initialPersona);
+
+  function clearGenerationFieldError() {
+    setFieldErrors((currentValue) => ({
+      ...currentValue,
+      description: null,
+    }));
+  }
 
   async function generatePersona() {
     const prompt = description.trim();
@@ -236,6 +307,7 @@ export function PersonaBuilder({
     setIsGenerating(true);
     setGenerationError(null);
     setSaveError(null);
+    clearGenerationFieldError();
 
     try {
       const response = await fetch("/api/personas/create", {
@@ -250,10 +322,22 @@ export function PersonaBuilder({
         await response.json();
 
       if (!response.ok || !data.persona) {
+        if (response.status === 400 && isValidationApiError(data)) {
+          setFieldErrors((currentValue) => ({
+            ...currentValue,
+            description: data.error,
+          }));
+          return;
+        }
+
         throw new Error(data.error ?? "Failed to generate persona.");
       }
 
       setPersona(data.persona);
+      setFieldErrors((currentValue) => ({
+        ...currentValue,
+        description: null,
+      }));
     } catch (error) {
       setGenerationError(
         error instanceof Error ? error.message : "Failed to generate persona.",
@@ -337,16 +421,25 @@ export function PersonaBuilder({
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
       <Card className="space-y-5">
         <div className="space-y-2">
-          <label className="text-sm font-semibold text-foreground">
+          <FieldLabel
+            help="Use one concrete persona, not a broad audience segment. Include the role, context, goals, and frustrations."
+            helpId="describe-persona-help"
+          >
             Describe the persona
-          </label>
+          </FieldLabel>
           <p className="text-sm text-muted-foreground">
             Include role, context, goals, frustrations, and decision style.
           </p>
         </div>
         <TextArea
           value={description}
-          onChange={(event) => setDescription(event.target.value)}
+          onChange={(event) => {
+            setDescription(event.target.value);
+            setFieldErrors((currentValue) => ({
+              ...currentValue,
+              description: null,
+            }));
+          }}
           onFocus={() => {
             setIsDescriptionFocused(true);
 
@@ -369,6 +462,12 @@ export function PersonaBuilder({
             {generationError}
           </p>
         ) : null}
+        <p
+          className="min-h-5 text-sm font-medium text-verdict-reject-text"
+          aria-live="polite"
+        >
+          {fieldErrors.description ?? ""}
+        </p>
         <Button onClick={generatePersona} disabled={isGenerating}>
           {isGenerating ? "Generating..." : "Generate Persona"}
         </Button>
@@ -386,7 +485,12 @@ export function PersonaBuilder({
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-foreground">Name</label>
+            <FieldLabel
+              help="Use a realistic name you can reuse in the panel. Keep it short and human."
+              helpId="persona-name-help"
+            >
+              Name
+            </FieldLabel>
             <Input
               value={persona.name}
               onChange={(event) =>
@@ -399,7 +503,12 @@ export function PersonaBuilder({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-foreground">Role</label>
+            <FieldLabel
+              help="Add the job title or role that shapes how this person makes decisions."
+              helpId="persona-role-help"
+            >
+              Role
+            </FieldLabel>
             <Input
               value={persona.role}
               onChange={(event) =>
@@ -412,7 +521,12 @@ export function PersonaBuilder({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-foreground">Summary</label>
+            <FieldLabel
+              help="Summarize this persona's habits, priorities, and tensions in one or two sentences."
+              helpId="persona-summary-help"
+            >
+              Summary
+            </FieldLabel>
             <TextArea
               rows={4}
               value={persona.summary}
@@ -450,7 +564,12 @@ export function PersonaBuilder({
           />
 
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-foreground">Voice</label>
+            <FieldLabel
+              help="Describe how this persona sounds when they are judging an idea."
+              helpId="persona-voice-help"
+            >
+              Voice
+            </FieldLabel>
             <Input
               value={persona.voice ?? ""}
               onChange={(event) =>
@@ -463,7 +582,12 @@ export function PersonaBuilder({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-foreground">Quote</label>
+            <FieldLabel
+              help="Write a line that sounds like something this persona would actually say."
+              helpId="persona-quote-help"
+            >
+              Quote
+            </FieldLabel>
             <TextArea
               rows={3}
               value={persona.quote ?? ""}

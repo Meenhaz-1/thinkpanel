@@ -13,6 +13,7 @@ import type {
   PersonaEvaluation,
   PersonaEvaluationDetails,
   PersonaEvaluationStatus,
+  PaginatedResult,
 } from "@/lib/types";
 
 type EvaluationRow = Pick<
@@ -101,10 +102,14 @@ function isPersonaEvaluationDetails(value: unknown): value is PersonaEvaluationD
     typeof metadata.evaluation_lens === "string" &&
     Array.isArray(candidate.what_lands) &&
     candidate.what_lands.every((item) => typeof item === "string") &&
-    Array.isArray(candidate.what_concerns_me) &&
-    candidate.what_concerns_me.every((item) => typeof item === "string") &&
+    Array.isArray(candidate.why_i_push_back) &&
+    candidate.why_i_push_back.every((item) => typeof item === "string") &&
+    Array.isArray(candidate.this_fails_if) &&
+    candidate.this_fails_if.every((item) => typeof item === "string") &&
+    typeof candidate.hidden_assumption === "string" &&
     Array.isArray(candidate.questions_for_pm) &&
-    candidate.questions_for_pm.every((item) => typeof item === "string")
+    candidate.questions_for_pm.every((item) => typeof item === "string") &&
+    typeof candidate.what_would_change_my_mind === "string"
   );
 }
 
@@ -193,15 +198,22 @@ function buildFallbackDetails(
       `It supports ${primaryGoal.toLowerCase()}.`,
       `It gives ${roleLabel} a clearer way to judge ${primaryLens.toLowerCase()}.`,
     ],
-    what_concerns_me: [
+    why_i_push_back: [
       row.top_concern || `It may still add friction around ${primaryFrustration.toLowerCase()}.`,
       `I need to know whether this helps or slows down ${primaryGoal.toLowerCase()}.`,
     ],
+    this_fails_if: [
+      `This fails if it adds a second workflow before showing a clear decision.`,
+      `This fails if the first useful result takes more than a few minutes to produce.`,
+    ],
+    hidden_assumption: `It assumes ${roleLabel} will trust a panel result enough to use it in decision-making.`,
     questions_for_pm: [
       `How does this help a ${roleLabel} make faster decisions?`,
       `What would stop ${primaryFrustration.toLowerCase()} from becoming a blocker?`,
       `What is the smallest version that proves value for teams focused on ${primaryLens.toLowerCase()}?`,
     ],
+    what_would_change_my_mind:
+      `Show a result that cuts down rework for ${roleLabel} without adding extra review steps.`,
   };
 }
 
@@ -212,29 +224,35 @@ function normalizePersonaEvaluation(
   const fallbackDetails = buildFallbackDetails(persona, row);
   const details = isPersonaEvaluationDetails(row.details) ? row.details : fallbackDetails;
 
-  return {
-    persona_id: row.persona_id,
-    verdict: row.verdict,
-    score: Math.round(row.score),
-    reaction: row.reaction.trim(),
-    top_concern: row.top_concern.trim(),
-    suggestion: row.suggestion.trim(),
-    metadata: {
-      role: details.metadata.role || fallbackDetails.metadata.role,
-      company: details.metadata.company || fallbackDetails.metadata.company,
-      device: details.metadata.device || fallbackDetails.metadata.device,
-      usage: details.metadata.usage || fallbackDetails.metadata.usage,
-      evaluation_lens:
-        details.metadata.evaluation_lens || fallbackDetails.metadata.evaluation_lens,
-    },
-    what_lands: details.what_lands.length ? details.what_lands : fallbackDetails.what_lands,
-    what_concerns_me: details.what_concerns_me.length
-      ? details.what_concerns_me
-      : fallbackDetails.what_concerns_me,
-    questions_for_pm: details.questions_for_pm.length
-      ? details.questions_for_pm
-      : fallbackDetails.questions_for_pm,
-  };
+    return {
+      persona_id: row.persona_id,
+      verdict: row.verdict,
+      score: Math.round(row.score),
+      reaction: row.reaction.trim(),
+      top_concern: row.top_concern.trim(),
+      suggestion: row.suggestion.trim(),
+      metadata: {
+        role: details.metadata.role || fallbackDetails.metadata.role,
+        company: details.metadata.company || fallbackDetails.metadata.company,
+        device: details.metadata.device || fallbackDetails.metadata.device,
+        usage: details.metadata.usage || fallbackDetails.metadata.usage,
+        evaluation_lens:
+          details.metadata.evaluation_lens || fallbackDetails.metadata.evaluation_lens,
+      },
+      what_lands: details.what_lands.length ? details.what_lands : fallbackDetails.what_lands,
+      why_i_push_back: details.why_i_push_back.length
+        ? details.why_i_push_back
+        : fallbackDetails.why_i_push_back,
+      this_fails_if: details.this_fails_if.length
+        ? details.this_fails_if
+        : fallbackDetails.this_fails_if,
+      hidden_assumption: details.hidden_assumption || fallbackDetails.hidden_assumption,
+      questions_for_pm: details.questions_for_pm.length
+        ? details.questions_for_pm
+        : fallbackDetails.questions_for_pm,
+      what_would_change_my_mind:
+        details.what_would_change_my_mind || fallbackDetails.what_would_change_my_mind,
+    };
 }
 
 function isRuntimePersonaEvaluationStatus(
@@ -388,35 +406,67 @@ async function fetchEvaluationFromDatabase(
 }
 
 export async function getEvaluationSummaries(): Promise<EvaluationSummary[]> {
+  const page = await getEvaluationSummariesPage();
+  return page.items;
+}
+
+export async function getEvaluationSummariesPage({
+  limit = 8,
+  offset = 0,
+}: {
+  limit?: number;
+  offset?: number;
+} = {}): Promise<PaginatedResult<EvaluationSummary>> {
   const workspaceId = process.env.DEFAULT_WORKSPACE_ID;
   const supabase = getSupabaseServerClient();
 
   if (!workspaceId || !supabase) {
-    return evaluationSummaries;
+    const items = evaluationSummaries.slice(offset, offset + limit);
+    return {
+      items,
+      total: evaluationSummaries.length,
+      hasMore: offset + items.length < evaluationSummaries.length,
+      nextOffset: offset + items.length,
+    };
   }
 
-  const { data, error } = await supabase
+  const { data, count, error } = await supabase
     .from("evaluations")
     .select(
       "id, title, feature_description, decision, decision_summary, created_at, status, selected_persona_ids",
+      { count: "exact" },
     )
     .eq("workspace_id", workspaceId)
-    .order("created_at", { ascending: false });
+    .in("status", ["completed", "partial_error", "failed"])
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
 
   if (error || !data) {
-    return evaluationSummaries;
+    const items = evaluationSummaries.slice(offset, offset + limit);
+    return {
+      items,
+      total: evaluationSummaries.length,
+      hasMore: offset + items.length < evaluationSummaries.length,
+      nextOffset: offset + items.length,
+    };
   }
 
-  return (data as EvaluationRow[])
-    .filter((row) => row.status !== "pending" && row.status !== "running")
-    .map((row) => ({
-      id: row.id,
-      title: row.title ?? deriveTitle(row.feature_description),
-      verdict: row.decision ?? "risky",
-      createdAt: formatRelativeTime(row.created_at),
-      summary: row.decision_summary ?? "",
-      selectedPersonaIds: asMaybeStringArray(row.selected_persona_ids),
-    }));
+  const rows = data as EvaluationRow[];
+  const items = rows.map((row) => ({
+    id: row.id,
+    title: row.title ?? deriveTitle(row.feature_description),
+    verdict: row.decision ?? "risky",
+    createdAt: formatRelativeTime(row.created_at),
+    summary: row.decision_summary ?? "",
+    selectedPersonaIds: asMaybeStringArray(row.selected_persona_ids),
+  }));
+
+  return {
+    items,
+    total: count ?? rows.length,
+    hasMore: offset + items.length < (count ?? rows.length),
+    nextOffset: offset + items.length,
+  };
 }
 
 export async function getEvaluationDetail(

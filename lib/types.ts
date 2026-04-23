@@ -30,8 +30,11 @@ export type PersonaEvaluationMetadata = {
 export type PersonaEvaluationDetails = {
   metadata: PersonaEvaluationMetadata;
   what_lands: string[];
-  what_concerns_me: string[];
+  why_i_push_back: string[];
+  this_fails_if: string[];
+  hidden_assumption: string;
   questions_for_pm: string[];
+  what_would_change_my_mind: string;
 };
 
 export type PersonaEvaluationLensItem = {
@@ -122,6 +125,13 @@ export type EvaluationSummaryState = {
   createdAt: string;
   summary: string;
   selectedPersonaIds: string[];
+};
+
+export type PaginatedResult<T> = {
+  items: T[];
+  total: number;
+  hasMore: boolean;
+  nextOffset: number;
 };
 
 export type EvaluationDraft = {

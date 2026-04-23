@@ -7,6 +7,7 @@ import { PersonaSelectorItem } from "@/components/evaluations/persona-selector-i
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { TextArea } from "@/components/ui/textarea";
+import { isValidationApiError } from "@/lib/api-validation";
 import type { EvaluationDraft, Persona } from "@/lib/types";
 
 type NewEvaluationFormProps = {
@@ -27,6 +28,13 @@ export function NewEvaluationForm({
     "idle" | "submitting" | "pending" | "failed"
   >("idle");
   const [runError, setRunError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{
+    idea: string | null;
+    personas: string | null;
+  }>({
+    idea: null,
+    personas: null,
+  });
 
   function togglePersona(id: string) {
     setSelectedPersonaIds((currentValue) =>
@@ -34,23 +42,37 @@ export function NewEvaluationForm({
         ? currentValue.filter((personaId) => personaId !== id)
         : [...currentValue, id],
     );
+    setFieldErrors((currentValue) => ({
+      ...currentValue,
+      personas: null,
+    }));
   }
 
   async function runPanel() {
     const featureDescription = idea.trim();
 
     if (!featureDescription) {
-      setRunError("Please describe the idea you want to evaluate.");
+      setFieldErrors((currentValue) => ({
+        ...currentValue,
+        idea: "Please describe the idea you want to evaluate.",
+      }));
       return;
     }
 
     if (!selectedPersonaIds.length) {
-      setRunError("Select at least one persona to run the panel.");
+      setFieldErrors((currentValue) => ({
+        ...currentValue,
+        personas: "Select at least one persona to run the panel.",
+      }));
       return;
     }
 
     setFormState("submitting");
     setRunError(null);
+    setFieldErrors({
+      idea: null,
+      personas: null,
+    });
 
     try {
       const response = await fetch("/api/evaluations/start", {
@@ -67,6 +89,22 @@ export function NewEvaluationForm({
       const data: { evaluation_id?: string; error?: string } = await response.json();
 
       if (!response.ok || !data.evaluation_id) {
+        if (response.status === 400 && isValidationApiError(data)) {
+          setFormState("idle");
+          if (data.field.toLowerCase().includes("idea")) {
+            setFieldErrors((currentValue) => ({
+              ...currentValue,
+              idea: data.error,
+            }));
+          } else {
+            setFieldErrors((currentValue) => ({
+              ...currentValue,
+              personas: data.error,
+            }));
+          }
+          return;
+        }
+
         throw new Error(data.error ?? "Failed to create evaluation run.");
       }
 
@@ -94,10 +132,22 @@ export function NewEvaluationForm({
         <TextArea
           rows={14}
           value={idea}
-          onChange={(event) => setIdea(event.target.value)}
+          onChange={(event) => {
+            setIdea(event.target.value);
+            setFieldErrors((currentValue) => ({
+              ...currentValue,
+              idea: null,
+            }));
+          }}
           className="min-h-72"
           placeholder="Describe your idea..."
         />
+        <p
+          className="min-h-5 text-sm font-medium text-verdict-reject-text"
+          aria-live="polite"
+        >
+          {fieldErrors.idea ?? ""}
+        </p>
         {runError ? (
           <p className="text-sm font-medium text-verdict-reject-text">
             {runError}
@@ -135,6 +185,12 @@ export function NewEvaluationForm({
               />
             ))}
           </div>
+          <p
+            className="min-h-5 text-sm font-medium text-verdict-reject-text"
+            aria-live="polite"
+          >
+            {fieldErrors.personas ?? ""}
+          </p>
         </Card>
 
         <Card className="space-y-5">

@@ -19,9 +19,9 @@ type ButtonProps = SharedProps &
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary:
-    "bg-[linear-gradient(135deg,var(--color-primary),var(--color-primary-strong))] text-white shadow-sm hover:brightness-[1.02]",
+    "bg-[linear-gradient(135deg,#4d29c8,#6645d6)] text-white shadow-sm hover:brightness-[1.02]",
   secondary:
-    "bg-surface-panel text-primary hover:bg-surface-panel-strong",
+    "bg-[#f4effd] text-[#4d29c8] hover:bg-surface-panel-strong",
   outline:
     "border border-border-subtle bg-white text-foreground hover:bg-surface-panel",
 };

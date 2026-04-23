@@ -3,6 +3,14 @@ import { NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai";
 import { getPersonasByIds } from "@/lib/get-personas";
 import { formatEvaluationLens } from "@/lib/persona-evaluation-lens";
+import {
+  LLMOutputSafetyError,
+  UserInputValidationError,
+  validateGeneratedLLMOutput,
+  validateUserLLMInput,
+  wrapUntrustedUserInput,
+} from "@/lib/llm-validation";
+import { EVALUATION_INSTRUCTIONS } from "@/lib/prompts/evaluation";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 import type {
   EvaluationExecutionRequest,
@@ -44,9 +52,12 @@ const evaluationSchema = {
             required: ["role", "company", "device", "usage", "evaluation_lens"],
           },
           what_lands: { type: "array", items: { type: "string" } },
-          what_concerns_me: { type: "array", items: { type: "string" } },
+          why_i_push_back: { type: "array", items: { type: "string" } },
+          this_fails_if: { type: "array", items: { type: "string" } },
+          hidden_assumption: { type: "string" },
           questions_for_pm: { type: "array", items: { type: "string" } },
           top_concern: { type: "string" },
+          what_would_change_my_mind: { type: "string" },
           suggestion: { type: "string" },
         },
         required: [
@@ -56,9 +67,12 @@ const evaluationSchema = {
           "reaction",
           "metadata",
           "what_lands",
-          "what_concerns_me",
+          "why_i_push_back",
+          "this_fails_if",
+          "hidden_assumption",
           "questions_for_pm",
           "top_concern",
+          "what_would_change_my_mind",
           "suggestion",
         ],
       },
@@ -138,9 +152,12 @@ function isEvaluationResult(value: unknown): value is EvaluationResult {
         typeof x.reaction === "string" &&
         isPersonaEvaluationMetadata(x.metadata) &&
         isStringArray(x.what_lands) &&
-        isStringArray(x.what_concerns_me) &&
+        isStringArray(x.why_i_push_back) &&
+        isStringArray(x.this_fails_if) &&
+        typeof x.hidden_assumption === "string" &&
         isStringArray(x.questions_for_pm) &&
         typeof x.top_concern === "string" &&
+        typeof x.what_would_change_my_mind === "string" &&
         typeof x.suggestion === "string"
       );
     })
@@ -154,6 +171,24 @@ function calculatePanelScore(personas: PersonaEvaluation[]) {
 
   const average = personas.reduce((sum, persona) => sum + persona.score, 0) / personas.length;
   return Math.max(0, Math.min(100, Math.round(average)));
+}
+
+function bandScoreByVerdict(
+  verdict: PersonaEvaluation["verdict"],
+  rawScore: number,
+) {
+  const normalized = Math.max(0, Math.min(100, Math.round(rawScore)));
+
+  switch (verdict) {
+    case "love":
+      return Math.round(80 + (normalized / 100) * 20);
+    case "like":
+      return Math.round(55 + (normalized / 100) * 24);
+    case "mixed":
+      return Math.round(25 + (normalized / 100) * 29);
+    case "reject":
+      return Math.round((normalized / 100) * 24);
+  }
 }
 
 async function updateEvaluation(
@@ -242,35 +277,6 @@ ${persona.voice}
     .join("\n");
 }
 
-function getModelInstructions() {
-  return `
-You are a decision-support engine, not a chatbot.
-
-Evaluate the feature across all selected personas and produce a sharp, grounded result.
-
-Rules:
-- Be specific, concise, and practical
-- Avoid filler, generic praise, and generic questions
-- Make each persona distinct
-- Base each persona on its own goals, frustrations, and evaluation lens
-- Keep all strings short enough for a UI
-- No markdown
-- No extra fields outside the schema
-
-For each persona:
-- reaction: one strong sentence
-- what_lands: 2-3 concrete strengths
-- what_concerns_me: 2-3 concrete risks
-- questions_for_pm: 2-3 uncomfortable but useful questions tied to the persona
-- top_concern: the single biggest issue
-- suggestion: one clear next step
-
-For the overall decision:
-- Choose ship, risky, or reject based on the pattern across the panel
-- Keep the decision summary short and decisive
-`;
-}
-
 export async function POST(req: Request) {
   const openai = getOpenAIClient();
   const supabase = getSupabaseServerClient();
@@ -346,6 +352,57 @@ export async function POST(req: Request) {
   }
 
   try {
+    let featureDescription: string;
+
+    try {
+      featureDescription = validateUserLLMInput(row.feature_description, {
+        endpoint: "evaluations/run",
+        fieldLabel: "idea",
+      }, {
+        minLength: 20,
+        maxLength: 2500,
+        maxLines: 25,
+        allowUrls: false,
+        allowCodeBlocks: false,
+        allowHtml: false,
+        allowJsonLikeContent: false,
+        rejectInstructionLikePatterns: true,
+        rejectOnlyPunctuation: true,
+        rejectRepeatedCharacters: true,
+        rejectRepeatedWords: true,
+        minWords: 4,
+        minUniqueWords: 4,
+      });
+    } catch (error) {
+      if (error instanceof UserInputValidationError) {
+        console.warn("Blocked evaluation run input", {
+          endpoint: "evaluations/run",
+          field: error.field,
+          code: error.code,
+          internalReason: error.internalReason,
+        });
+
+        await updateEvaluation(supabase, evaluationId, {
+          status: "failed",
+          stage: "Finalizing recommendations",
+          error_message: error.userMessage,
+        }).catch((updateError) => {
+          console.error("Failed to update invalid evaluation:", updateError);
+        });
+
+        return NextResponse.json(
+          {
+            error: error.userMessage,
+            code: error.code,
+            field: error.field,
+          },
+          { status: 400 },
+        );
+      }
+
+      throw error;
+    }
+
     await updateEvaluation(supabase, evaluationId, {
       status: "running",
       stage: "Preparing panel",
@@ -360,10 +417,24 @@ export async function POST(req: Request) {
     });
 
     const response = await openai.responses.create({
-      model: "gpt-4.1-mini",
+      model: "gpt-4.1",
       temperature: 0.2,
-      instructions: getModelInstructions(),
-      input: `Feature:\n${row.feature_description}\n\nPersonas:\n${personaContext}`,
+      instructions: EVALUATION_INSTRUCTIONS,
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: [
+                wrapUntrustedUserInput("idea", featureDescription),
+                wrapUntrustedUserInput("persona context", personaContext),
+              ].join("\n\n"),
+            },
+          ],
+        },
+      ],
+      safety_identifier: workspaceId ?? undefined,
       text: {
         format: {
           type: "json_schema",
@@ -374,24 +445,44 @@ export async function POST(req: Request) {
       },
     });
 
-    const responseAny = response as typeof response & {
+    const responseAny = response as {
       output_text?: string | null;
+      output_parsed?: unknown;
       output?: Array<{
-        content?: Array<{ type?: string; text?: string }>;
+        type?: string;
+        content?: Array<{ type?: string; refusal?: string; text?: string }>;
       }>;
     };
 
+    const refusalText = responseAny.output
+      ?.flatMap((item) => item.content ?? [])
+      .find(
+        (item): item is { type: "refusal"; refusal: string } =>
+          item.type === "refusal" && typeof item.refusal === "string",
+      )?.refusal;
+
+    if (refusalText) {
+      throw new LLMOutputSafetyError(
+        "evaluation response",
+        "Model refused to generate a structured evaluation.",
+      );
+    }
+
     const outputText =
+      responseAny.output_parsed ??
       responseAny.output_text ??
       responseAny.output?.[0]?.content?.[0]?.text ??
       responseAny.output?.[0]?.content?.find((item) => item.type === "output_text")?.text ??
       null;
 
-    if (!outputText) {
-      throw new Error("Empty model response");
-    }
+    const parsed =
+      typeof outputText === "string"
+        ? JSON.parse(outputText)
+        : outputText ?? (() => {
+            throw new Error("Empty model response");
+          })();
 
-    const parsed = JSON.parse(outputText);
+    validateGeneratedLLMOutput(parsed, "evaluation");
     if (!isEvaluationResult(parsed)) {
       throw new Error("Invalid evaluation payload");
     }
@@ -408,13 +499,16 @@ export async function POST(req: Request) {
       return {
         persona_id: persona.id,
         verdict: parsedPersona.verdict,
-        score: Math.round(Math.max(0, Math.min(100, parsedPersona.score))),
+        score: bandScoreByVerdict(parsedPersona.verdict, parsedPersona.score),
         reaction: clamp(parsedPersona.reaction, 180),
         metadata: parsedPersona.metadata,
         what_lands: parsedPersona.what_lands.map((item) => clamp(item, 180)),
-        what_concerns_me: parsedPersona.what_concerns_me.map((item) => clamp(item, 180)),
+        why_i_push_back: parsedPersona.why_i_push_back.map((item) => clamp(item, 180)),
+        this_fails_if: parsedPersona.this_fails_if.map((item) => clamp(item, 180)),
+        hidden_assumption: clamp(parsedPersona.hidden_assumption, 200),
         questions_for_pm: parsedPersona.questions_for_pm.map((item) => clamp(item, 180)),
         top_concern: clamp(parsedPersona.top_concern, 180),
+        what_would_change_my_mind: clamp(parsedPersona.what_would_change_my_mind, 200),
         suggestion: clamp(parsedPersona.suggestion, 220),
       } satisfies PersonaEvaluation;
     });
@@ -427,6 +521,8 @@ export async function POST(req: Request) {
       confidence: calculatePanelScore(normalizedPersonas),
       personas: normalizedPersonas,
     };
+
+    validateGeneratedLLMOutput(result, "evaluation result");
 
     await updateEvaluation(supabase, evaluationId, {
       decision: result.decision,
@@ -455,8 +551,11 @@ export async function POST(req: Request) {
       const details: PersonaEvaluationDetails = {
         metadata: personaResult.metadata,
         what_lands: personaResult.what_lands,
-        what_concerns_me: personaResult.what_concerns_me,
+        why_i_push_back: personaResult.why_i_push_back,
+        this_fails_if: personaResult.this_fails_if,
+        hidden_assumption: personaResult.hidden_assumption,
         questions_for_pm: personaResult.questions_for_pm,
+        what_would_change_my_mind: personaResult.what_would_change_my_mind,
       };
 
       const error = await upsertPersonaResponse(
@@ -488,12 +587,31 @@ export async function POST(req: Request) {
       completed_at: new Date().toISOString(),
     });
 
+    console.log(
+      "Evaluation result payload:\n%s",
+      JSON.stringify(
+        {
+          evaluation_id: evaluationId,
+          status: finalStatus,
+          result,
+        },
+        null,
+        2,
+      ),
+    );
+
     return NextResponse.json({
       evaluation_id: evaluationId,
       result,
     });
   } catch (error) {
     console.error("Evaluation run error:", error);
+
+    const status = error instanceof LLMOutputSafetyError ? 422 : 500;
+    const message =
+      error instanceof LLMOutputSafetyError
+        ? "Unable to complete the evaluation from that input"
+        : "Failed to run evaluation";
 
     await updateEvaluation(supabase, evaluationId, {
       status: "failed",
@@ -505,8 +623,8 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json(
-      { error: "Failed to run evaluation" },
-      { status: 500 },
+      { error: message },
+      { status },
     );
   }
 }

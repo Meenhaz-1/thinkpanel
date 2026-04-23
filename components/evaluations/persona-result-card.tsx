@@ -50,60 +50,86 @@ function SkeletonLine({ className }: { className?: string }) {
 
 function PendingBody() {
   return (
-    <div className="grid gap-6 xl:grid-cols-[220px_minmax(0,1fr)_320px]">
-      <div className="grid gap-4 text-sm">
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-3 xl:grid-cols-5">
         {metaLabels.map(([label]) => (
-          <div key={label} className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+          <div key={label} className="min-w-0 space-y-0.5 rounded-[18px] border border-border-subtle bg-white/60 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
               {label}
             </p>
-            <SkeletonLine className="h-4 w-44 rounded-xl" />
+            <SkeletonLine className="h-4 w-full rounded-xl" />
           </div>
         ))}
       </div>
 
-      <div className="space-y-6">
-        <div className="rounded-[26px] border border-border-subtle bg-white/80 px-5 py-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-            Reaction
-          </p>
-          <div className="mt-4 space-y-3">
-            <SkeletonLine className="h-6 w-full" />
-            <SkeletonLine className="h-6 w-[82%]" />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+        <div className="space-y-4">
+          <div className="rounded-[26px] border border-border-subtle bg-white/80 px-5 py-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+              Reaction
+            </p>
+            <div className="mt-4 space-y-3">
+              <SkeletonLine className="h-6 w-full" />
+              <SkeletonLine className="h-6 w-[82%]" />
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+              What lands
+            </p>
+            <div className="space-y-3">
+              <SkeletonLine className="h-4 w-full" />
+              <SkeletonLine className="h-4 w-[88%]" />
+              <SkeletonLine className="h-4 w-[78%]" />
+            </div>
           </div>
         </div>
 
-        <div className="space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-            What lands
-          </p>
+        <div className="space-y-4">
           <div className="space-y-3">
-            <SkeletonLine className="h-4 w-full" />
-            <SkeletonLine className="h-4 w-[88%]" />
-            <SkeletonLine className="h-4 w-[78%]" />
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+              Why I push back
+            </p>
+            <div className="space-y-2.5">
+              <SkeletonLine className="h-4 w-full" />
+              <SkeletonLine className="h-4 w-[85%]" />
+            </div>
           </div>
-        </div>
-      </div>
 
-      <div className="space-y-6">
-        <div className="space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-            What concerns me
-          </p>
           <div className="space-y-3">
-            <SkeletonLine className="h-4 w-full" />
-            <SkeletonLine className="h-4 w-[85%]" />
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+              Top concern
+            </p>
+            <SkeletonLine className="h-12 w-full rounded-[22px]" />
           </div>
-        </div>
 
-        <div className="space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-            Questions for PM
-          </p>
           <div className="space-y-3">
-            <SkeletonLine className="h-4 w-full" />
-            <SkeletonLine className="h-4 w-[84%]" />
-            <SkeletonLine className="h-4 w-[70%]" />
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+              This fails if
+            </p>
+            <div className="space-y-2.5">
+              <SkeletonLine className="h-4 w-full" />
+              <SkeletonLine className="h-4 w-[90%]" />
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+              Hidden assumption
+            </p>
+            <SkeletonLine className="h-12 w-full rounded-[22px]" />
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+              Questions for PM
+            </p>
+            <div className="space-y-2.5">
+              <SkeletonLine className="h-4 w-full" />
+              <SkeletonLine className="h-4 w-[84%]" />
+              <SkeletonLine className="h-4 w-[70%]" />
+            </div>
           </div>
         </div>
       </div>
@@ -157,7 +183,7 @@ export function PersonaResultCard({
       open={isOpen}
     >
       <summary className="list-none cursor-pointer px-4 py-4 outline-none transition-colors hover:bg-white/35 focus-visible:bg-white/35 md:px-5 md:py-5">
-        <div className="grid gap-3 xl:grid-cols-[minmax(0,235px)_minmax(0,1fr)_auto_170px] xl:items-center">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,235px)_minmax(0,1fr)_auto_170px_18px] xl:items-center">
           <div className="flex min-w-0 items-center gap-3">
             <PersonaAvatar name={persona.name} size="lg" />
             <div className="min-w-0">
@@ -224,21 +250,16 @@ export function PersonaResultCard({
               )}
             </div>
           </div>
-        </div>
 
-        <div className="mt-8 flex items-center justify-between border-t border-border-subtle pt-5">
-          <span className="sr-only">
-            {isPending ? "Loading" : isFailed ? "Needs retry" : "Click for details"}
-          </span>
-          <span className="text-sm text-muted-foreground transition-transform duration-200 group-open:rotate-180">
+          <span className="hidden text-sm text-muted-foreground transition-transform duration-200 group-open:rotate-180 xl:block">
             ▾
           </span>
         </div>
       </summary>
 
-      <div className="border-t border-border-subtle px-5 py-6 md:px-6 md:py-7">
+      <div className="border-t border-border-subtle px-5 py-5 md:px-6 md:py-6">
         {isPending ? (
-          <div className="space-y-6">
+          <div className="space-y-5">
             <PendingBody />
             <div className="rounded-[26px] border border-border-subtle bg-surface-panel/70 px-5 py-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
@@ -253,110 +274,165 @@ export function PersonaResultCard({
         ) : isFailed ? (
           <FailedBody message={errorMessage ?? "This persona could not be evaluated."} onRetry={onRetry} />
         ) : (
-          <div className="grid gap-6 xl:grid-cols-[220px_minmax(0,1fr)_320px]">
-            <dl className="grid gap-4 text-sm">
+          <div className="space-y-4">
+            <dl className="grid grid-cols-2 gap-3 text-sm md:grid-cols-3 xl:grid-cols-5">
               {metaLabels.map(([label, key]) => (
-                <div key={label} className="space-y-1">
+                <div
+                  key={label}
+                  className="min-w-0 space-y-0.5 rounded-[18px] border border-border-subtle bg-white/60 px-3 py-2"
+                >
                   <dt className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
                     {label}
                   </dt>
-                  <dd className="leading-6 text-foreground">
+                  <dd className="leading-5 text-foreground">
                     {completedEvaluation.metadata[key] || "—"}
                   </dd>
                 </div>
               ))}
             </dl>
 
-            <div className="space-y-6">
-              <div className="rounded-[26px] border border-border-subtle bg-white/80 px-5 py-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                  Reaction
-                </p>
-                <p className="mt-3 text-[18px] leading-8 text-foreground md:text-[20px]">
-                  {completedEvaluation.reaction}
-                </p>
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+              <div className="space-y-4">
+                <div className="rounded-[26px] border border-border-subtle bg-white/80 px-4 py-3 md:px-5 md:py-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                    Reaction
+                  </p>
+                  <p className="mt-2.5 text-[16px] leading-7 text-foreground md:text-[18px]">
+                    {completedEvaluation.reaction}
+                  </p>
+                </div>
+
+                <section className="space-y-2.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                    What lands
+                  </p>
+                  <ul className="space-y-2.5">
+                    {completedEvaluation.what_lands.map((item, index) => (
+                      <li
+                        key={`${item}-${index}`}
+                        className="flex gap-3 text-sm leading-6 text-foreground"
+                      >
+                        <span
+                          className={cn(
+                            "mt-2 h-2 w-2 shrink-0 rounded-full",
+                            renderListItemTone(index, completedEvaluation.verdict),
+                          )}
+                        />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               </div>
 
-              <section className="space-y-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                  What lands
-                </p>
-                <ul className="space-y-3">
-                  {completedEvaluation.what_lands.map((item, index) => (
-                    <li
-                      key={`${item}-${index}`}
-                      className="flex gap-3 text-sm leading-6 text-foreground"
-                    >
-                      <span
-                        className={cn(
-                          "mt-2 h-2 w-2 shrink-0 rounded-full",
-                          renderListItemTone(index, completedEvaluation.verdict),
-                        )}
-                      />
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            </div>
-
-            <div className="space-y-6">
-              <section className="space-y-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                  What concerns me
-                </p>
-                <ul className="space-y-3">
-                  {completedEvaluation.what_concerns_me.map((item, index) => (
-                    <li
-                      key={`${item}-${index}`}
-                      className="flex gap-3 text-sm leading-6 text-foreground"
-                    >
-                      <span
-                        className={cn(
-                          "mt-2 h-2 w-2 shrink-0 rounded-full",
-                          completedEvaluation.verdict === "reject"
-                            ? "bg-rose-500"
-                            : completedEvaluation.verdict === "mixed"
-                              ? "bg-amber-500"
-                              : index === 0
+              <div className="space-y-4">
+                <section className="space-y-2.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                    Why I push back
+                  </p>
+                  <ul className="space-y-2.5">
+                    {completedEvaluation.why_i_push_back.map((item, index) => (
+                      <li
+                        key={`${item}-${index}`}
+                        className="flex gap-3 text-sm leading-6 text-foreground"
+                      >
+                        <span
+                          className={cn(
+                            "mt-2 h-2 w-2 shrink-0 rounded-full",
+                            completedEvaluation.verdict === "reject"
+                              ? "bg-rose-500"
+                              : completedEvaluation.verdict === "mixed"
                                 ? "bg-amber-500"
-                                : "bg-rose-400",
-                        )}
-                      />
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
+                                : index === 0
+                                  ? "bg-amber-500"
+                                  : "bg-rose-400",
+                          )}
+                        />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
 
-              <section className="space-y-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                  Questions for PM
-                </p>
-                <ul className="space-y-3">
-                  {completedEvaluation.questions_for_pm.map((item) => (
-                    <li
-                      key={item}
-                      className="flex gap-3 text-sm leading-6 text-foreground"
-                    >
-                      <span className="mt-0.5 text-sm font-semibold text-primary">?</span>
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
+                <section className="space-y-2.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                    Top concern
+                  </p>
+                  <div className="rounded-[22px] border border-border-subtle bg-surface-panel/70 px-4 py-3 text-sm leading-6 text-foreground">
+                    {completedEvaluation.top_concern}
+                  </div>
+                </section>
+
+                <section className="space-y-2.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                    This fails if
+                  </p>
+                  <ul className="space-y-2.5">
+                    {completedEvaluation.this_fails_if.map((item) => (
+                      <li
+                        key={item}
+                        className="flex gap-3 text-sm leading-6 text-foreground"
+                      >
+                        <span className="mt-0.5 text-sm font-semibold text-rose-500">
+                          !
+                        </span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+
+                <section className="space-y-2.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                    Hidden assumption
+                  </p>
+                  <div className="rounded-[22px] border border-border-subtle bg-surface-panel/70 px-4 py-3 text-sm leading-6 text-foreground">
+                    {completedEvaluation.hidden_assumption}
+                  </div>
+                </section>
+
+                <section className="space-y-2.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                    Questions for PM
+                  </p>
+                  <ul className="space-y-2.5">
+                    {completedEvaluation.questions_for_pm.map((item) => (
+                      <li
+                        key={item}
+                        className="flex gap-3 text-sm leading-6 text-foreground"
+                      >
+                        <span className="mt-0.5 text-sm font-semibold text-primary">
+                          ?
+                        </span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              </div>
             </div>
           </div>
         )}
 
         {isPending || isFailed ? null : (
-          <div className="mt-6 rounded-[26px] border border-border-subtle bg-surface-panel/70 px-5 py-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-              Suggestion
-            </p>
-            <p className="mt-2 text-sm leading-7 text-foreground">
-              {completedEvaluation.suggestion}
-            </p>
+          <div className="space-y-3">
+            <div className="rounded-[26px] border border-border-subtle bg-surface-panel/70 px-4 py-3 md:px-5 md:py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                What would change my mind
+              </p>
+              <p className="mt-2 text-sm leading-6 text-foreground">
+                {completedEvaluation.what_would_change_my_mind}
+              </p>
+            </div>
+
+            <div className="rounded-[26px] border border-border-subtle bg-surface-panel/70 px-4 py-3 md:px-5 md:py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                Suggestion
+              </p>
+              <p className="mt-2 text-sm leading-6 text-foreground">
+                {completedEvaluation.suggestion}
+              </p>
+            </div>
           </div>
         )}
       </div>

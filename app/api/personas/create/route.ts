@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 
 import { getOpenAIClient } from "@/lib/openai";
 import type { PersonaGenerated } from "@/lib/types";
+import {
+  LLMOutputSafetyError,
+  UserInputValidationError,
+  validateGeneratedLLMOutput,
+  validateUserLLMInput,
+  wrapUntrustedUserInput,
+} from "@/lib/llm-validation";
+import { PERSONA_GENERATION_INSTRUCTIONS } from "@/lib/prompts/persona-generation";
 
 const personaSchema = {
   type: "object",
@@ -98,62 +106,9 @@ function isPersonaGenerated(value: unknown): value is PersonaGenerated {
   );
 }
 
-const PERSONA_GENERATION_INSTRUCTIONS = `
-Convert the user's description into a realistic, high-signal persona optimized for evaluating product ideas.
-
-The persona must be behaviorally specific, opinionated, and useful for making decisions. Do not generalize or summarize into vague traits.
-
-CRITICAL REQUIREMENTS:
-
-1. Preserve concrete behaviors
-- Do not abstract actions into generic statements
-- Keep specific behaviors (e.g. "saves content impulsively but rarely revisits", not "engages with content")
-
-2. Make internal tension explicit
-- Include at least one clear conflict in behavior or priorities
-- Do not soften it (e.g. "wants originality but copies trends that perform")
-
-3. Create a sharp decision lens
-- The evaluation_lens must reflect how this persona judges ideas
-- Each lens item must include:
-  - criterion: what they judge
-  - why_it_matters: why this matters to them specifically
-  - tradeoff: what downside, risk, or compromise they are weighing
-- Avoid generic criteria like "improves experience" or "increases engagement"
-
-4. Add rejection triggers
-- frustrations must include specific reasons they would quickly dismiss a product
-- Avoid vague phrasing like "doesn't like complexity"
-
-5. Ban generic language
-Do NOT use phrases like:
-- "increase engagement"
-- "understand users"
-- "maintain quality"
-- "values authenticity"
-Rewrite everything in concrete, observable terms
-
-6. Keep it evaluation-ready
-- The persona should naturally produce strong opinions, critiques, and questions
-- Avoid neutral or agreeable tone
-
-STYLE:
-- Crisp, direct, slightly opinionated
-- No fluff, no storytelling
-- Every line should feel grounded in real behavior
-
-OTHER RULES:
-- Infer missing details conservatively
-- Keep arrays concise (3-5 items max)
-- Ensure internal consistency
-- Produce a quote that reflects their actual mindset (not generic inspiration)
-
-Do not include markdown.
-Do not include any fields outside the schema.
-`.trim();
-
 export async function POST(req: Request) {
   const client = getOpenAIClient();
+  const workspaceId = process.env.DEFAULT_WORKSPACE_ID;
 
   if (!client) {
     return NextResponse.json(
@@ -173,20 +128,65 @@ export async function POST(req: Request) {
     );
   }
 
-  const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+  let prompt: string;
 
-  if (!prompt) {
-    return NextResponse.json(
-      { error: "prompt is required" },
-      { status: 400 },
-    );
+  try {
+    prompt = validateUserLLMInput(body.prompt, {
+      endpoint: "personas/create",
+      fieldLabel: "persona description",
+    }, {
+      minLength: 40,
+      maxLength: 1200,
+      maxLines: 12,
+      allowUrls: false,
+      allowCodeBlocks: false,
+      allowHtml: false,
+      allowJsonLikeContent: false,
+      rejectInstructionLikePatterns: true,
+      rejectOnlyPunctuation: true,
+      rejectRepeatedCharacters: true,
+      rejectRepeatedWords: true,
+      minWords: 8,
+      minUniqueWords: 6,
+    });
+  } catch (error) {
+    if (error instanceof UserInputValidationError) {
+      console.warn("Blocked persona generation input", {
+        endpoint: "personas/create",
+        field: error.field,
+        code: error.code,
+        internalReason: error.internalReason,
+      });
+
+      return NextResponse.json(
+        {
+          error: error.userMessage,
+          code: error.code,
+          field: error.field,
+        },
+        { status: 400 },
+      );
+    }
+
+    throw error;
   }
 
   try {
     const response = await client.responses.create({
-      model: "gpt-4.1-mini",
+      model: "gpt-4.1",
       instructions: PERSONA_GENERATION_INSTRUCTIONS,
-      input: prompt,
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: wrapUntrustedUserInput("persona description", prompt),
+            },
+          ],
+        },
+      ],
+      safety_identifier: workspaceId ?? undefined,
       max_output_tokens: 900,
       temperature: 0.4,
       text: {
@@ -199,13 +199,45 @@ export async function POST(req: Request) {
       },
     });
 
-    const outputText = response.output_text?.trim();
+    const responseAny = response as {
+      output_parsed?: unknown;
+      output_text?: string | null;
+      output?: Array<{
+        type?: string;
+        content?: Array<{
+          type?: string;
+          refusal?: string;
+          text?: string;
+        }>;
+      }>;
+    };
 
-    if (!outputText) {
-      throw new Error("Empty model response");
+    const refusalText = responseAny.output
+      ?.flatMap((item) => item.content ?? [])
+      .find(
+        (item): item is { type: "refusal"; refusal: string } =>
+          item.type === "refusal" && typeof item.refusal === "string",
+      )?.refusal;
+
+    if (refusalText) {
+      throw new LLMOutputSafetyError(
+        "persona response",
+        "Model refused to generate a structured persona.",
+      );
     }
 
-    const parsed = JSON.parse(outputText) as unknown;
+    const parsed =
+      responseAny.output_parsed ??
+      (() => {
+        const outputText = responseAny.output_text?.trim();
+        if (!outputText) {
+          throw new Error("Empty model response");
+        }
+
+        return JSON.parse(outputText) as unknown;
+      })();
+
+    validateGeneratedLLMOutput(parsed, "persona");
 
     if (!isPersonaGenerated(parsed)) {
       throw new Error("Invalid persona payload");
@@ -216,6 +248,13 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("Persona generation error:", error);
+
+    if (error instanceof LLMOutputSafetyError) {
+      return NextResponse.json(
+        { error: "Failed to generate persona from that description" },
+        { status: 422 },
+      );
+    }
 
     return NextResponse.json(
       { error: "Failed to generate persona" },

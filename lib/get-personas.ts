@@ -1,6 +1,6 @@
 import { personas as mockPersonas } from "@/lib/mock-data";
 import { normalizeEvaluationLens } from "@/lib/persona-evaluation-lens";
-import type { Persona } from "@/lib/types";
+import type { PaginatedResult, Persona } from "@/lib/types";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 
 type PersonaRow = {
@@ -78,18 +78,74 @@ async function fetchPersonas(
   }
 }
 
-export async function getPersonas(): Promise<Persona[]> {
-  const personas = await fetchPersonas(async (supabase) =>
-    supabase
+type PaginationOptions = {
+  limit?: number;
+  offset?: number;
+};
+
+const PERSONA_SELECT_QUERY =
+  "id, name, role, summary, voice, goals, frustrations, evaluation_lens, company_size, company_type, seniority, quote, generation_prompt, source_type, created_at, updated_at";
+
+export async function getPersonas(options: PaginationOptions = {}): Promise<Persona[]> {
+  const personas = await fetchPersonas(async (supabase) => {
+    let query = supabase
       .from("personas")
-      .select(
-        "id, name, role, summary, voice, goals, frustrations, evaluation_lens, company_size, company_type, seniority, quote, generation_prompt, source_type, created_at, updated_at",
-      )
+      .select(PERSONA_SELECT_QUERY)
       .eq("workspace_id", process.env.DEFAULT_WORKSPACE_ID ?? "")
-      .order("updated_at", { ascending: false }),
-  );
+      .order("updated_at", { ascending: false });
+
+    if (typeof options.limit === "number" || typeof options.offset === "number") {
+      const from = options.offset ?? 0;
+      const to = from + (options.limit ?? 0) - 1;
+      query = query.range(from, to);
+    }
+
+    return query;
+  });
 
   return sortByLastUpdated(personas ?? mockPersonas);
+}
+
+export async function getPersonasPage({
+  limit = 8,
+  offset = 0,
+}: PaginationOptions = {}): Promise<PaginatedResult<Persona>> {
+  const workspaceId = process.env.DEFAULT_WORKSPACE_ID;
+  const supabase = getSupabaseServerClient();
+
+  if (!workspaceId || !supabase) {
+    const items = sortByLastUpdated(mockPersonas).slice(offset, offset + limit);
+    return {
+      items,
+      total: mockPersonas.length,
+      hasMore: offset + items.length < mockPersonas.length,
+      nextOffset: offset + items.length,
+    };
+  }
+
+  const { data, count, error } = await supabase
+    .from("personas")
+    .select(PERSONA_SELECT_QUERY, { count: "exact" })
+    .eq("workspace_id", workspaceId)
+    .order("updated_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error || !data) {
+    const items = sortByLastUpdated(mockPersonas).slice(offset, offset + limit);
+    return {
+      items,
+      total: mockPersonas.length,
+      hasMore: offset + items.length < mockPersonas.length,
+      nextOffset: offset + items.length,
+    };
+  }
+
+  return {
+    items: data.map(mapPersonaRow),
+    total: count ?? data.length,
+    hasMore: offset + data.length < (count ?? data.length),
+    nextOffset: offset + data.length,
+  };
 }
 
 export async function getPersonasByIds(

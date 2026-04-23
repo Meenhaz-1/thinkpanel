@@ -221,16 +221,24 @@ export const evaluationResults: Record<string, EvaluationResult> = {
           "The panel helps align product, finance, and operations on one outcome.",
           "The rollout can be positioned as a disciplined planning tool.",
         ],
-        what_concerns_me: [
+        why_i_push_back: [
           "The setup could get too broad before the first useful result appears.",
           "If there are too many persona inputs, leaders may ignore the workflow.",
           "I still need proof this saves time instead of adding another meeting.",
         ],
+        this_fails_if: [
+          "This fails if the first useful evaluation takes more than a couple of minutes.",
+          "This fails if leaders need a manual walkthrough for every launch decision.",
+        ],
+        hidden_assumption:
+          "It assumes executives will trust a panel result enough to use it without debating the method.",
         questions_for_pm: [
           "How fast can I get to the first decision?",
           "Can I constrain this to a single high-stakes launch type?",
           "What evidence shows this changes decision quality?",
         ],
+        what_would_change_my_mind:
+          "Show a setup that produces a useful decision in one short session, without extra workshops.",
         top_concern: "The workflow could feel too broad if setup asks for too much context.",
         suggestion: "Launch with a narrower template flow for one primary decision type.",
       },
@@ -251,16 +259,24 @@ export const evaluationResults: Record<string, EvaluationResult> = {
           "The layout has enough breathing room to feel premium.",
           "The product story is simple enough to show to a team quickly.",
         ],
-        what_concerns_me: [
+        why_i_push_back: [
           "The interface could blur into a generic analytics dashboard.",
           "If the verdict card is not dominant, the whole product loses impact.",
           "The supporting detail needs enough polish to feel credible.",
         ],
+        this_fails_if: [
+          "This fails if the decision card is not the first thing people notice.",
+          "This fails if the persona detail turns into a wall of text.",
+        ],
+        hidden_assumption:
+          "It assumes people want the result to feel like a polished product moment rather than a plain report.",
         questions_for_pm: [
           "How will you keep the decision card visually first?",
           "Can the persona detail feel cinematic without becoming cluttered?",
           "What makes this feel distinct from a generic report?",
         ],
+        what_would_change_my_mind:
+          "Show a clearer visual hierarchy where the verdict remains the obvious focal point on first glance.",
         top_concern: "The interface could become generic if the verdict moment is buried.",
         suggestion: "Keep the decision summary bold, immediate, and visually unmistakable.",
       },
@@ -281,16 +297,24 @@ export const evaluationResults: Record<string, EvaluationResult> = {
           "The output could reduce rework if it consistently drives alignment.",
           "The structure makes it easier to compare options quickly.",
         ],
-        what_concerns_me: [
+        why_i_push_back: [
           "I do not yet see concrete efficiency gains that justify adoption.",
           "If results feel subjective, finance teams will discount them.",
           "The cost of maintaining the process could outweigh the benefit.",
         ],
+        this_fails_if: [
+          "This fails if the panel cannot show a measurable time saving.",
+          "This fails if finance teams still need to manually verify the recommendation.",
+        ],
+        hidden_assumption:
+          "It assumes the organization will accept a qualitative panel result as evidence worth acting on.",
         questions_for_pm: [
           "What measurable time savings does this create?",
           "How do you prove this is more than a polished opinion generator?",
           "What is the expected payback period?",
         ],
+        what_would_change_my_mind:
+          "Show evidence that the panel shortens decision cycles without adding review overhead.",
         top_concern: "Teams may hesitate if they cannot see near-term efficiency gains.",
         suggestion: "Add outcome-oriented proof points tied to avoided rework or faster alignment.",
       },

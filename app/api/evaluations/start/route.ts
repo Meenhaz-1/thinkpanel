@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 
+import {
+  UserInputValidationError,
+  validateUserLLMInput,
+} from "@/lib/llm-validation";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 import type { EvaluationRunRequest } from "@/lib/types";
 
@@ -32,7 +36,49 @@ export async function POST(req: Request) {
     }
 
     const body: EvaluationRunRequest = await req.json();
-    const featureDescription = body.feature_description?.trim();
+    let featureDescription: string;
+
+    try {
+      featureDescription = validateUserLLMInput(body.feature_description, {
+        endpoint: "evaluations/start",
+        fieldLabel: "idea",
+      }, {
+        minLength: 20,
+        maxLength: 2500,
+        maxLines: 25,
+        allowUrls: false,
+        allowCodeBlocks: false,
+        allowHtml: false,
+        allowJsonLikeContent: false,
+        rejectInstructionLikePatterns: true,
+        rejectOnlyPunctuation: true,
+        rejectRepeatedCharacters: true,
+        rejectRepeatedWords: true,
+        minWords: 4,
+        minUniqueWords: 4,
+      });
+    } catch (error) {
+      if (error instanceof UserInputValidationError) {
+        console.warn("Blocked evaluation start input", {
+          endpoint: "evaluations/start",
+          field: error.field,
+          code: error.code,
+          internalReason: error.internalReason,
+        });
+
+        return NextResponse.json(
+          {
+            error: error.userMessage,
+            code: error.code,
+            field: error.field,
+          },
+          { status: 400 },
+        );
+      }
+
+      throw error;
+    }
+
     const personaIds = Array.isArray(body.persona_ids)
       ? Array.from(
           new Set(
@@ -42,13 +88,6 @@ export async function POST(req: Request) {
           ),
         )
       : [];
-
-    if (!featureDescription) {
-      return NextResponse.json(
-        { error: "feature_description is required" },
-        { status: 400 },
-      );
-    }
 
     if (!personaIds.length) {
       return NextResponse.json(
