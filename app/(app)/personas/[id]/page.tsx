@@ -5,6 +5,7 @@ import { PersonaBuilder } from "@/components/personas/persona-builder";
 import { PageContainer } from "@/components/ui/page-container";
 import { generatedPersonaDraft } from "@/lib/mock-data";
 import { getPersonasByIds } from "@/lib/get-personas";
+import { requireApprovedUser } from "@/lib/auth";
 
 type EditPersonaPageProps = {
   params: Promise<{
@@ -13,8 +14,12 @@ type EditPersonaPageProps = {
 };
 
 export default async function EditPersonaPage({ params }: EditPersonaPageProps) {
+  const auth = await requireApprovedUser({ touch: false });
   const { id } = await params;
-  const [persona] = await getPersonasByIds([id], { fallbackToMock: true });
+  const [persona] = await getPersonasByIds([id], {
+    fallbackToMock: true,
+    viewer: auth.viewer,
+  });
 
   if (!persona) {
     notFound();

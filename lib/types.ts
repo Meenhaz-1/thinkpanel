@@ -1,3 +1,5 @@
+import type { EvaluationImageInput } from "@/lib/evaluation-constraints";
+
 export type Verdict = "ship" | "risky" | "reject";
 
 export type EvaluationDecision = Verdict;
@@ -45,6 +47,7 @@ export type PersonaEvaluationLensItem = {
 
 export type Persona = {
   id: string;
+  ownerId?: string | null;
   name: string;
   role: string;
   summary: string;
@@ -149,6 +152,7 @@ export type RuntimePersonaEvaluation = {
 
 export type EvaluationRuntimeDetail = {
   id: string;
+  ownerId?: string | null;
   title: string;
   feature_description: string;
   status: EvaluationStatus;
@@ -168,8 +172,10 @@ export type EvaluationRuntimeDetail = {
 export type EvaluationRecord = {
   id: string;
   workspace_id: string;
+  owner_id?: string | null;
   title: string | null;
   feature_description: string;
+  image_inputs?: EvaluationImageInput[] | null;
   decision: EvaluationDecision | null;
   decision_summary: string | null;
   why: string[] | null;

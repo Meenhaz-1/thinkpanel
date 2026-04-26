@@ -4,10 +4,22 @@ import { PageHeader } from "@/components/layout/page-header";
 import { DashboardCollections } from "@/components/dashboard/dashboard-collections";
 import { getPersonasPage } from "@/lib/get-personas";
 import { getEvaluationSummariesPage } from "@/lib/get-evaluations";
+import { requireApprovedUser } from "@/lib/auth";
+import { getAdminDashboardOverview } from "@/lib/admin-dashboard";
 
 export default async function DashboardPage() {
-  const personas = await getPersonasPage({ limit: 8, offset: 0 });
-  const evaluationSummaries = await getEvaluationSummariesPage({ limit: 8, offset: 0 });
+  const auth = await requireApprovedUser({ touch: false });
+  const personas = await getPersonasPage({
+    limit: 8,
+    offset: 0,
+    viewer: auth.viewer,
+  });
+  const evaluationSummaries = await getEvaluationSummariesPage({
+    limit: 8,
+    offset: 0,
+    viewer: auth.viewer,
+  });
+  const adminOverview = auth.isAdmin ? await getAdminDashboardOverview() : null;
 
   return (
     <PageContainer>
@@ -27,6 +39,7 @@ export default async function DashboardPage() {
       <DashboardCollections
         initialPersonas={personas}
         initialEvaluations={evaluationSummaries}
+        adminOverview={adminOverview}
       />
     </PageContainer>
   );

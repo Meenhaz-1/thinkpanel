@@ -16,9 +16,38 @@ import type {
   PaginatedResult,
 } from "@/lib/types";
 
+type DataViewer = {
+  userId: string;
+  isAdmin: boolean;
+};
+
+type UntypedArrayResult = {
+  data: unknown[] | null;
+  count?: number | null;
+  error: { message: string } | null;
+};
+
+type UntypedSingleResult = {
+  data: unknown | null;
+  error: { message: string } | null;
+};
+
+type UntypedQuery = PromiseLike<UntypedArrayResult> & {
+  eq(column: string, value: unknown): UntypedQuery;
+  in(column: string, values: unknown[]): UntypedQuery;
+  order(column: string, options?: Record<string, unknown>): UntypedQuery;
+  range(from: number, to: number): UntypedQuery;
+  maybeSingle(): Promise<UntypedSingleResult>;
+};
+
+type UntypedTable = {
+  select(columns: string, options?: Record<string, unknown>): UntypedQuery;
+};
+
 type EvaluationRow = Pick<
   EvaluationRecord,
   | "id"
+  | "owner_id"
   | "title"
   | "feature_description"
   | "decision"
@@ -49,6 +78,43 @@ type EvaluationPersonaResponseRow = {
   error_message?: string | null;
   created_at: string;
 };
+
+const EVALUATION_DETAIL_COLUMNS = [
+  "id",
+  "owner_id",
+  "title",
+  "feature_description",
+  "decision",
+  "decision_summary",
+  "why",
+  "top_fixes",
+  "confidence",
+  "status",
+  "stage",
+  "selected_persona_ids",
+  "error_message",
+  "started_at",
+  "completed_at",
+  "created_at",
+].join(", ");
+
+function fromTable(
+  supabase: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
+  relation: string,
+) {
+  return supabase.from(relation) as unknown as UntypedTable;
+}
+
+function scopeEvaluationQuery(
+  query: UntypedQuery,
+  viewer?: DataViewer,
+) {
+  if (!viewer || viewer.isAdmin) {
+    return query;
+  }
+
+  return query.eq("owner_id", viewer.userId);
+}
 
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
@@ -162,6 +228,15 @@ function formatRelativeTime(isoDate: string) {
 
   const days = Math.round(hours / 24);
   return `${days} day${days === 1 ? "" : "s"} ${diffMs > 0 ? "ago" : "from now"}`;
+}
+
+function emptyPage<T>(offset: number): PaginatedResult<T> {
+  return {
+    items: [],
+    total: 0,
+    hasMore: false,
+    nextOffset: offset,
+  };
 }
 
 function calculatePanelScore(personaEvaluations: Array<{ evaluation: PersonaEvaluation | null }>) {
@@ -338,6 +413,7 @@ function buildRuntimeDetailFromRows(
 
   return {
     id: evaluationRow.id,
+    ownerId: evaluationRow.owner_id,
     title: evaluationRow.title ?? deriveTitle(evaluationRow.feature_description),
     feature_description: evaluationRow.feature_description,
     status,
@@ -357,6 +433,7 @@ function buildRuntimeDetailFromRows(
 
 async function fetchEvaluationFromDatabase(
   id: string,
+  viewer?: DataViewer,
 ): Promise<EvaluationRuntimeDetail | null> {
   const workspaceId = process.env.DEFAULT_WORKSPACE_ID;
   const supabase = getSupabaseServerClient();
@@ -365,19 +442,25 @@ async function fetchEvaluationFromDatabase(
     return null;
   }
 
-  const { data: evaluationRow, error: evaluationError } = await supabase
-    .from("evaluations")
-    .select("*")
-    .eq("id", id)
-    .eq("workspace_id", workspaceId)
+  const evaluationQuery = scopeEvaluationQuery(
+    fromTable(supabase, "evaluations")
+      .select(EVALUATION_DETAIL_COLUMNS)
+      .eq("id", id)
+      .eq("workspace_id", workspaceId),
+    viewer,
+  )
     .maybeSingle();
+
+  const { data: evaluationRow, error: evaluationError } = await evaluationQuery;
 
   if (evaluationError || !evaluationRow) {
     return null;
   }
 
-  const { data: responseRows, error: responseError } = await supabase
-    .from("evaluation_persona_responses")
+  const { data: responseRows, error: responseError } = await fromTable(
+    supabase,
+    "evaluation_persona_responses",
+  )
     .select("*")
     .eq("evaluation_id", id)
     .order("created_at", { ascending: true });
@@ -387,20 +470,21 @@ async function fetchEvaluationFromDatabase(
   }
 
   const selectedPersonaIds = asMaybeStringArray(
-    (evaluationRow as EvaluationRow).selected_persona_ids,
+    (evaluationRow as unknown as EvaluationRow).selected_persona_ids,
   );
-  const responsePersonaIds = (responseRows as EvaluationPersonaResponseRow[]).map(
+  const responsePersonaIds = (responseRows as unknown as EvaluationPersonaResponseRow[]).map(
     (row) => row.persona_id,
   );
   const personaIds = selectedPersonaIds.length ? selectedPersonaIds : responsePersonaIds;
 
   const personas = await getPersonasByIds(personaIds, {
     fallbackToMock: true,
+    viewer,
   });
 
   return buildRuntimeDetailFromRows(
-    evaluationRow as EvaluationRow,
-    responseRows as EvaluationPersonaResponseRow[],
+    evaluationRow as unknown as EvaluationRow,
+    responseRows as unknown as EvaluationPersonaResponseRow[],
     personas,
   );
 }
@@ -413,14 +497,20 @@ export async function getEvaluationSummaries(): Promise<EvaluationSummary[]> {
 export async function getEvaluationSummariesPage({
   limit = 8,
   offset = 0,
+  viewer,
 }: {
   limit?: number;
   offset?: number;
+  viewer?: DataViewer;
 } = {}): Promise<PaginatedResult<EvaluationSummary>> {
   const workspaceId = process.env.DEFAULT_WORKSPACE_ID;
   const supabase = getSupabaseServerClient();
 
   if (!workspaceId || !supabase) {
+    if (viewer) {
+      return emptyPage(offset);
+    }
+
     const items = evaluationSummaries.slice(offset, offset + limit);
     return {
       items,
@@ -430,18 +520,26 @@ export async function getEvaluationSummariesPage({
     };
   }
 
-  const { data, count, error } = await supabase
-    .from("evaluations")
-    .select(
-      "id, title, feature_description, decision, decision_summary, created_at, status, selected_persona_ids",
-      { count: "exact" },
-    )
-    .eq("workspace_id", workspaceId)
+  const query = scopeEvaluationQuery(
+    fromTable(supabase, "evaluations")
+      .select(
+        "id, owner_id, title, feature_description, decision, decision_summary, created_at, status, selected_persona_ids",
+        { count: "exact" },
+      )
+      .eq("workspace_id", workspaceId),
+    viewer,
+  )
     .in("status", ["completed", "partial_error", "failed"])
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
+  const { data, count, error } = await query;
+
   if (error || !data) {
+    if (viewer) {
+      return emptyPage(offset);
+    }
+
     const items = evaluationSummaries.slice(offset, offset + limit);
     return {
       items,
@@ -471,10 +569,15 @@ export async function getEvaluationSummariesPage({
 
 export async function getEvaluationDetail(
   id: string,
+  options: { viewer?: DataViewer } = {},
 ): Promise<EvaluationRuntimeDetail | null> {
-  const databaseDetail = await fetchEvaluationFromDatabase(id);
+  const databaseDetail = await fetchEvaluationFromDatabase(id, options.viewer);
   if (databaseDetail) {
     return databaseDetail;
+  }
+
+  if (options.viewer) {
+    return null;
   }
 
   const summary = evaluationSummaries.find((item) => item.id === id) ?? null;
@@ -487,7 +590,7 @@ export async function getEvaluationDetail(
 
   const personas = await getPersonasByIds(
     result.personas.map((personaEvaluation) => personaEvaluation.persona_id),
-    { fallbackToMock: true },
+    { fallbackToMock: true, viewer: options.viewer },
   );
   const personaMap = new Map(personas.map((persona) => [persona.id, persona]));
 
@@ -509,6 +612,7 @@ export async function getEvaluationDetail(
 
   return {
     id: summary.id,
+    ownerId: null,
     title: summary.title,
     feature_description: draft?.idea ?? summary.summary,
     status: "completed",
@@ -528,6 +632,7 @@ export async function getEvaluationDetail(
 
 export async function getEvaluationDraftById(
   id?: string,
+  options: { viewer?: DataViewer } = {},
 ): Promise<EvaluationDraft> {
   if (!id) {
     return evaluationDrafts.blank;
@@ -537,26 +642,55 @@ export async function getEvaluationDraftById(
   const supabase = getSupabaseServerClient();
 
   if (workspaceId && supabase) {
-    const { data: evaluationRow } = await supabase
-      .from("evaluations")
-      .select("id, feature_description")
-      .eq("id", id)
-      .eq("workspace_id", workspaceId)
+    const draftQuery = scopeEvaluationQuery(
+      fromTable(supabase, "evaluations")
+        .select("id, feature_description, selected_persona_ids")
+        .eq("id", id)
+        .eq("workspace_id", workspaceId),
+      options.viewer,
+    )
       .maybeSingle();
 
+    const { data: evaluationRow } = await draftQuery;
+
     if (evaluationRow) {
-      const { data: responseRows } = await supabase
-        .from("evaluation_persona_responses")
+      const row = evaluationRow as {
+        id?: unknown;
+        feature_description?: unknown;
+        selected_persona_ids?: unknown;
+      };
+      const { data: responseRows } = await fromTable(
+        supabase,
+        "evaluation_persona_responses",
+      )
         .select("persona_id")
         .eq("evaluation_id", id);
 
+      const selectedPersonaIds = asMaybeStringArray(
+        row.selected_persona_ids,
+      );
+      const responsePersonaIds = Array.isArray(responseRows)
+        ? responseRows
+            .map((responseRow) =>
+              typeof (responseRow as { persona_id?: unknown }).persona_id === "string"
+                ? (responseRow as { persona_id: string }).persona_id
+                : null,
+            )
+            .filter((personaId): personaId is string => Boolean(personaId))
+        : [];
+
       return {
-        id: evaluationRow.id,
-        idea: evaluationRow.feature_description,
-        selectedPersonaIds: responseRows?.map((row) => row.persona_id) ?? [],
+        id: typeof row.id === "string" ? row.id : id,
+        idea:
+          typeof row.feature_description === "string"
+            ? row.feature_description
+            : evaluationDrafts.blank.idea,
+        selectedPersonaIds: selectedPersonaIds.length
+          ? selectedPersonaIds
+          : responsePersonaIds,
       };
     }
   }
 
-  return evaluationDrafts[id] ?? evaluationDrafts.blank;
+  return options.viewer ? evaluationDrafts.blank : evaluationDrafts[id] ?? evaluationDrafts.blank;
 }

@@ -10,6 +10,7 @@ import {
   wrapUntrustedUserInput,
 } from "@/lib/llm-validation";
 import { PERSONA_GENERATION_INSTRUCTIONS } from "@/lib/prompts/persona-generation";
+import { authErrorResponse, requireApprovedUser } from "@/lib/auth";
 
 const personaSchema = {
   type: "object",
@@ -107,8 +108,14 @@ function isPersonaGenerated(value: unknown): value is PersonaGenerated {
 }
 
 export async function POST(req: Request) {
+  let auth;
+  try {
+    auth = await requireApprovedUser();
+  } catch (error) {
+    return authErrorResponse(error);
+  }
+
   const client = getOpenAIClient();
-  const workspaceId = process.env.DEFAULT_WORKSPACE_ID;
 
   if (!client) {
     return NextResponse.json(
@@ -186,7 +193,7 @@ export async function POST(req: Request) {
           ],
         },
       ],
-      safety_identifier: workspaceId ?? undefined,
+      safety_identifier: auth.user.id,
       max_output_tokens: 900,
       temperature: 0.4,
       text: {

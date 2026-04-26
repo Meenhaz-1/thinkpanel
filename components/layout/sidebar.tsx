@@ -19,8 +19,9 @@ function isActive(pathname: string, href: string) {
   return pathname.startsWith(href.replace("/new", ""));
 }
 
-export function Sidebar() {
+export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
+  const items = navItems;
 
   return (
     <>
@@ -36,14 +37,14 @@ export function Sidebar() {
                   Persona Panel
                 </p>
                 <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
-                  Decision Support
+                  {isAdmin ? "Admin Access" : "Decision Support"}
                 </p>
               </div>
             </Link>
           </div>
 
           <nav className="space-y-2">
-            {navItems.map((item) => {
+            {items.map((item) => {
               const active = isActive(pathname, item.href);
 
               return (
@@ -76,13 +77,13 @@ export function Sidebar() {
                 Persona Panel
               </p>
               <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
-                Decision Support
+                {isAdmin ? "Admin Access" : "Decision Support"}
               </p>
             </div>
           </Link>
         </div>
         <nav className="flex gap-2 overflow-x-auto px-5 pb-4">
-          {navItems.map((item) => {
+          {items.map((item) => {
             const active = isActive(pathname, item.href);
 
             return (

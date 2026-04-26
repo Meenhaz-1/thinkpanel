@@ -4,6 +4,12 @@ import { getOpenAIClient } from "@/lib/openai";
 import { getPersonasByIds } from "@/lib/get-personas";
 import { formatEvaluationLens } from "@/lib/persona-evaluation-lens";
 import {
+  EVALUATION_IMAGE_DETAIL,
+  EVALUATION_PERSONA_COUNT,
+  getEvaluationImages,
+} from "@/lib/evaluation-constraints";
+import { authErrorResponse, requireApprovedUser } from "@/lib/auth";
+import {
   LLMOutputSafetyError,
   UserInputValidationError,
   validateGeneratedLLMOutput,
@@ -84,8 +90,10 @@ const evaluationSchema = {
 type EvaluationRow = {
   id: string;
   workspace_id: string;
+  owner_id?: string | null;
   title: string | null;
   feature_description: string;
+  image_inputs?: unknown;
   decision: EvaluationResult["decision"] | null;
   decision_summary: string | null;
   why: string[] | null;
@@ -191,6 +199,17 @@ function bandScoreByVerdict(
   }
 }
 
+function validationResponse(error: string, field: string) {
+  return NextResponse.json(
+    {
+      error,
+      code: "invalid_count",
+      field,
+    },
+    { status: 400 },
+  );
+}
+
 async function updateEvaluation(
   supabase: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
   evaluationId: string,
@@ -278,6 +297,13 @@ ${persona.voice}
 }
 
 export async function POST(req: Request) {
+  let auth;
+  try {
+    auth = await requireApprovedUser();
+  } catch (error) {
+    return authErrorResponse(error);
+  }
+
   const openai = getOpenAIClient();
   const supabase = getSupabaseServerClient();
   const workspaceId = process.env.DEFAULT_WORKSPACE_ID;
@@ -311,12 +337,38 @@ export async function POST(req: Request) {
     );
   }
 
-  const { data: evaluationRow, error: evaluationError } = await supabase
+  let evaluationQuery = supabase
     .from("evaluations")
-    .select("*")
+    .select(
+      [
+        "id",
+        "workspace_id",
+        "owner_id",
+        "title",
+        "feature_description",
+        "image_inputs",
+        "decision",
+        "decision_summary",
+        "why",
+        "top_fixes",
+        "confidence",
+        "status",
+        "stage",
+        "selected_persona_ids",
+        "error_message",
+        "started_at",
+        "completed_at",
+      ].join(", "),
+    )
     .eq("id", evaluationId)
-    .eq("workspace_id", workspaceId)
-    .maybeSingle();
+    .eq("workspace_id", workspaceId);
+
+  if (!auth.isAdmin) {
+    evaluationQuery = evaluationQuery.eq("owner_id", auth.user.id);
+  }
+
+  const { data: evaluationRow, error: evaluationError } =
+    await evaluationQuery.maybeSingle();
 
   if (evaluationError || !evaluationRow) {
     return NextResponse.json(
@@ -325,7 +377,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const row = evaluationRow as EvaluationRow;
+  const row = evaluationRow as unknown as EvaluationRow;
   const selectedPersonaIds = Array.isArray(row.selected_persona_ids)
     ? Array.from(
         new Set(
@@ -336,15 +388,18 @@ export async function POST(req: Request) {
       )
     : [];
 
-  if (!selectedPersonaIds.length) {
-    return NextResponse.json(
-      { error: "No personas selected for this evaluation" },
-      { status: 400 },
+  if (selectedPersonaIds.length !== EVALUATION_PERSONA_COUNT) {
+    return validationResponse(
+      `Select exactly ${EVALUATION_PERSONA_COUNT} personas for this evaluation`,
+      "personas",
     );
   }
 
-  const personas = await getPersonasByIds(selectedPersonaIds, { fallbackToMock: false });
-  if (!personas.length) {
+  const personas = await getPersonasByIds(selectedPersonaIds, {
+    fallbackToMock: false,
+    viewer: auth.viewer,
+  });
+  if (personas.length !== selectedPersonaIds.length) {
     return NextResponse.json(
       { error: "No personas found for this evaluation" },
       { status: 404 },
@@ -411,10 +466,29 @@ export async function POST(req: Request) {
     });
 
     const personaContext = buildPersonaContext(personas);
+    const imageInputs = getEvaluationImages(row.image_inputs);
 
     await updateEvaluation(supabase, evaluationId, {
       stage: "Evaluating idea",
     });
+
+    const inputContent = [
+      {
+        type: "input_text" as const,
+        text: [
+          wrapUntrustedUserInput("idea", featureDescription),
+          imageInputs.length
+            ? `ATTACHED IMAGE COUNT: ${imageInputs.length}`
+            : "ATTACHED IMAGE COUNT: 0",
+          wrapUntrustedUserInput("persona context", personaContext),
+        ].join("\n\n"),
+      },
+      ...imageInputs.map((image) => ({
+        type: "input_image" as const,
+        image_url: image.dataUrl,
+        detail: EVALUATION_IMAGE_DETAIL,
+      })),
+    ];
 
     const response = await openai.responses.create({
       model: "gpt-4.1",
@@ -423,18 +497,10 @@ export async function POST(req: Request) {
       input: [
         {
           role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: [
-                wrapUntrustedUserInput("idea", featureDescription),
-                wrapUntrustedUserInput("persona context", personaContext),
-              ].join("\n\n"),
-            },
-          ],
+          content: inputContent,
         },
       ],
-      safety_identifier: workspaceId ?? undefined,
+      safety_identifier: auth.user.id,
       text: {
         format: {
           type: "json_schema",

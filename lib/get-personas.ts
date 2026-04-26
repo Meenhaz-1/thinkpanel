@@ -3,8 +3,31 @@ import { normalizeEvaluationLens } from "@/lib/persona-evaluation-lens";
 import type { PaginatedResult, Persona } from "@/lib/types";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 
+type DataViewer = {
+  userId: string;
+  isAdmin: boolean;
+};
+
+type UntypedQueryResult = {
+  data: unknown[] | null;
+  count?: number | null;
+  error: { message: string } | null;
+};
+
+type UntypedQuery = PromiseLike<UntypedQueryResult> & {
+  eq(column: string, value: unknown): UntypedQuery;
+  in(column: string, values: unknown[]): UntypedQuery;
+  order(column: string, options?: Record<string, unknown>): UntypedQuery;
+  range(from: number, to: number): UntypedQuery;
+};
+
+type UntypedTable = {
+  select(columns: string, options?: Record<string, unknown>): UntypedQuery;
+};
+
 type PersonaRow = {
   id: string;
+  owner_id: string | null;
   name: string;
   role: string;
   summary: string;
@@ -25,6 +48,7 @@ type PersonaRow = {
 function mapPersonaRow(row: PersonaRow): Persona {
   return {
     id: row.id,
+    ownerId: row.owner_id,
     name: row.name,
     role: row.role,
     summary: row.summary,
@@ -52,9 +76,16 @@ function sortByLastUpdated(personas: Persona[]) {
   });
 }
 
+function fromTable(
+  supabase: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
+  relation: string,
+) {
+  return supabase.from(relation) as unknown as UntypedTable;
+}
+
 async function fetchPersonas(
   selectQuery: (supabase: NonNullable<ReturnType<typeof getSupabaseServerClient>>) => Promise<{
-    data: PersonaRow[] | null;
+    data: unknown[] | null;
     error: { message: string } | null;
   }>,
 ): Promise<Persona[] | null> {
@@ -72,7 +103,7 @@ async function fetchPersonas(
       return null;
     }
 
-    return data.map(mapPersonaRow);
+    return (data as PersonaRow[]).map(mapPersonaRow);
   } catch {
     return null;
   }
@@ -81,18 +112,40 @@ async function fetchPersonas(
 type PaginationOptions = {
   limit?: number;
   offset?: number;
+  viewer?: DataViewer;
 };
 
 const PERSONA_SELECT_QUERY =
-  "id, name, role, summary, voice, goals, frustrations, evaluation_lens, company_size, company_type, seniority, quote, generation_prompt, source_type, created_at, updated_at";
+  "id, owner_id, name, role, summary, voice, goals, frustrations, evaluation_lens, company_size, company_type, seniority, quote, generation_prompt, source_type, created_at, updated_at";
+
+function emptyPage<T>(offset: number): PaginatedResult<T> {
+  return {
+    items: [],
+    total: 0,
+    hasMore: false,
+    nextOffset: offset,
+  };
+}
+
+function scopePersonaQuery(
+  query: UntypedQuery,
+  viewer?: DataViewer,
+) {
+  if (!viewer || viewer.isAdmin) {
+    return query;
+  }
+
+  return query.eq("owner_id", viewer.userId);
+}
 
 export async function getPersonas(options: PaginationOptions = {}): Promise<Persona[]> {
   const personas = await fetchPersonas(async (supabase) => {
-    let query = supabase
-      .from("personas")
-      .select(PERSONA_SELECT_QUERY)
-      .eq("workspace_id", process.env.DEFAULT_WORKSPACE_ID ?? "")
-      .order("updated_at", { ascending: false });
+    let query = scopePersonaQuery(
+      fromTable(supabase, "personas")
+        .select(PERSONA_SELECT_QUERY)
+        .eq("workspace_id", process.env.DEFAULT_WORKSPACE_ID ?? ""),
+      options.viewer,
+    ).order("updated_at", { ascending: false });
 
     if (typeof options.limit === "number" || typeof options.offset === "number") {
       const from = options.offset ?? 0;
@@ -103,17 +156,22 @@ export async function getPersonas(options: PaginationOptions = {}): Promise<Pers
     return query;
   });
 
-  return sortByLastUpdated(personas ?? mockPersonas);
+  return sortByLastUpdated(personas ?? (options.viewer ? [] : mockPersonas));
 }
 
 export async function getPersonasPage({
   limit = 8,
   offset = 0,
+  viewer,
 }: PaginationOptions = {}): Promise<PaginatedResult<Persona>> {
   const workspaceId = process.env.DEFAULT_WORKSPACE_ID;
   const supabase = getSupabaseServerClient();
 
   if (!workspaceId || !supabase) {
+    if (viewer) {
+      return emptyPage(offset);
+    }
+
     const items = sortByLastUpdated(mockPersonas).slice(offset, offset + limit);
     return {
       items,
@@ -123,14 +181,22 @@ export async function getPersonasPage({
     };
   }
 
-  const { data, count, error } = await supabase
-    .from("personas")
-    .select(PERSONA_SELECT_QUERY, { count: "exact" })
-    .eq("workspace_id", workspaceId)
+  const query = scopePersonaQuery(
+    fromTable(supabase, "personas")
+      .select(PERSONA_SELECT_QUERY, { count: "exact" })
+      .eq("workspace_id", workspaceId),
+    viewer,
+  )
     .order("updated_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
+  const { data, count, error } = await query;
+
   if (error || !data) {
+    if (viewer) {
+      return emptyPage(offset);
+    }
+
     const items = sortByLastUpdated(mockPersonas).slice(offset, offset + limit);
     return {
       items,
@@ -141,7 +207,7 @@ export async function getPersonasPage({
   }
 
   return {
-    items: data.map(mapPersonaRow),
+    items: (data as PersonaRow[]).map(mapPersonaRow),
     total: count ?? data.length,
     hasMore: offset + data.length < (count ?? data.length),
     nextOffset: offset + data.length,
@@ -150,7 +216,7 @@ export async function getPersonasPage({
 
 export async function getPersonasByIds(
   ids: string[],
-  options: { fallbackToMock?: boolean } = {},
+  options: { fallbackToMock?: boolean; viewer?: DataViewer } = {},
 ): Promise<Persona[]> {
   const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
   if (!uniqueIds.length) {
@@ -158,13 +224,13 @@ export async function getPersonasByIds(
   }
 
   const personas = await fetchPersonas(async (supabase) =>
-    supabase
-      .from("personas")
-      .select(
-        "id, name, role, summary, voice, goals, frustrations, evaluation_lens, company_size, company_type, seniority, quote, generation_prompt, source_type, created_at, updated_at",
-      )
-      .in("id", uniqueIds)
-      .eq("workspace_id", process.env.DEFAULT_WORKSPACE_ID ?? ""),
+    scopePersonaQuery(
+      fromTable(supabase, "personas")
+        .select(PERSONA_SELECT_QUERY)
+        .in("id", uniqueIds)
+        .eq("workspace_id", process.env.DEFAULT_WORKSPACE_ID ?? ""),
+      options.viewer,
+    ),
   );
 
   if (personas) {
@@ -175,7 +241,7 @@ export async function getPersonasByIds(
     });
   }
 
-  if (!options.fallbackToMock) {
+  if (!options.fallbackToMock || options.viewer) {
     return [];
   }
 

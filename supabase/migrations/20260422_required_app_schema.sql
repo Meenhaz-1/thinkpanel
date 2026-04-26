@@ -32,6 +32,12 @@ alter table public.evaluations
   add column if not exists selected_persona_ids jsonb not null default '[]'::jsonb;
 
 alter table public.evaluations
+  add column if not exists image_inputs jsonb not null default '[]'::jsonb;
+
+alter table public.evaluations
+  add column if not exists owner_id uuid references auth.users(id) on delete set null;
+
+alter table public.evaluations
   add column if not exists error_message text;
 
 alter table public.evaluations
@@ -90,6 +96,9 @@ alter table public.personas
 
 alter table public.personas
   add column if not exists updated_at timestamptz not null default now();
+
+alter table public.personas
+  add column if not exists owner_id uuid references auth.users(id) on delete set null;
 
 alter table public.personas
   alter column updated_at set default now();

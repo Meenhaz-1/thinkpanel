@@ -9,11 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SectionHeader } from "@/components/ui/section-header";
+import { AdminDashboardPanel } from "@/components/dashboard/admin-dashboard-panel";
+import type { AdminDashboardOverview } from "@/lib/admin-dashboard";
 import type { EvaluationSummary, PaginatedResult, Persona } from "@/lib/types";
 
 type DashboardCollectionsProps = {
   initialPersonas: PaginatedResult<Persona>;
   initialEvaluations: PaginatedResult<EvaluationSummary>;
+  adminOverview: AdminDashboardOverview | null;
 };
 
 const PAGE_SIZE = 8;
@@ -21,6 +24,7 @@ const PAGE_SIZE = 8;
 export function DashboardCollections({
   initialPersonas,
   initialEvaluations,
+  adminOverview,
 }: DashboardCollectionsProps) {
   const [personas, setPersonas] = useState(initialPersonas.items);
   const [evaluationSummaries, setEvaluationSummaries] = useState(
@@ -111,7 +115,10 @@ export function DashboardCollections({
   }
 
   return (
-    <div className="grid gap-8 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+    <div className="space-y-8">
+      {adminOverview ? <AdminDashboardPanel overview={adminOverview} /> : null}
+
+      <div className="grid gap-8 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
       <section className="space-y-4">
         <SectionHeader title="Recent Evaluations" />
         {evaluationSummaries.length ? (
@@ -214,6 +221,7 @@ export function DashboardCollections({
           </div>
         ) : null}
       </section>
+      </div>
     </div>
   );
 }

@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server"
 
+import { authErrorResponse, requireApprovedUser } from "@/lib/auth"
 import { normalizeEvaluationLens } from "@/lib/persona-evaluation-lens"
 import { getSupabaseServerClient } from "@/lib/supabase-server"
 import type { PersonaEvaluationLensItem } from "@/lib/types"
+import {
+  enforceUsageLimit,
+  recordUsageEvent,
+  usageLimitResponse,
+} from "@/lib/usage-limits"
 
 type PersonaPayload = {
   id?: string
@@ -23,6 +29,13 @@ type PersonaPayload = {
 
 export async function POST(req: Request) {
   try {
+    let auth
+    try {
+      auth = await requireApprovedUser()
+    } catch (error) {
+      return authErrorResponse(error)
+    }
+
     const body: PersonaPayload = await req.json()
 
     const workspaceId = process.env.DEFAULT_WORKSPACE_ID
@@ -42,8 +55,19 @@ export async function POST(req: Request) {
       )
     }
 
+    try {
+      await enforceUsageLimit(auth, "persona_save")
+    } catch (error) {
+      const response = usageLimitResponse(error)
+      if (response) {
+        return response
+      }
+
+      throw error
+    }
+
     const now = new Date().toISOString()
-    const row = {
+    const baseRow = {
       workspace_id: workspaceId,
       name: body.name,
       role: body.role,
@@ -61,15 +85,28 @@ export async function POST(req: Request) {
       updated_at: now,
     }
 
-    const query = body.id
-      ? supabase
-          .from("personas")
-          .update(row)
-          .eq("id", body.id)
-          .eq("workspace_id", workspaceId)
-          .select()
-          .single()
-      : supabase.from("personas").insert([row]).select().single()
+    const insertRow = {
+      ...baseRow,
+      owner_id: auth.user.id,
+    }
+
+    const query = (() => {
+      if (!body.id) {
+        return supabase.from("personas").insert([insertRow]).select().single()
+      }
+
+      let updateQuery = supabase
+        .from("personas")
+        .update(baseRow)
+        .eq("id", body.id)
+        .eq("workspace_id", workspaceId)
+
+      if (!auth.isAdmin) {
+        updateQuery = updateQuery.eq("owner_id", auth.user.id)
+      }
+
+      return updateQuery.select().single()
+    })()
 
     const { data, error } = await query
 
@@ -77,6 +114,28 @@ export async function POST(req: Request) {
       console.error("Supabase insert error:", error)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
+
+    if (!data) {
+      return NextResponse.json(
+        { error: "Persona not found" },
+        { status: 404 },
+      )
+    }
+
+    const personaData = data as { id?: unknown }
+    const personaId = typeof personaData.id === "string" ? personaData.id : null
+    if (!personaId) {
+      return NextResponse.json(
+        { error: "Failed to save persona" },
+        { status: 500 },
+      )
+    }
+
+    await recordUsageEvent({
+      userId: auth.user.id,
+      eventType: "persona_save",
+      entityId: personaId,
+    })
 
     console.log("[persona-save] saved persona:\n" + JSON.stringify(data, null, 2))
 

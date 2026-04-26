@@ -7,19 +7,22 @@ import { cn } from "@/lib/utils";
 type PersonaSelectorItemProps = {
   persona: Persona;
   checked: boolean;
+  disabled?: boolean;
   onToggle: (id: string) => void;
 };
 
 export function PersonaSelectorItem({
   persona,
   checked,
+  disabled = false,
   onToggle,
 }: PersonaSelectorItemProps) {
   return (
-    <label className="block cursor-pointer">
+    <label className={cn("block", disabled ? "cursor-not-allowed" : "cursor-pointer")}>
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={() => onToggle(persona.id)}
         className="sr-only"
       />
@@ -29,6 +32,7 @@ export function PersonaSelectorItem({
           checked
             ? "border-primary/40 bg-primary/5"
             : "border-border-subtle bg-white hover:bg-surface-panel",
+          disabled && "opacity-55 hover:bg-white",
         )}
       >
         <div className="flex items-start justify-between gap-4">
