@@ -4,10 +4,35 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { upsertUserProfileForUser } from "@/lib/auth";
 
 function redirectOrigin(request: Request, origin: string) {
+  const forwardedProto = request.headers.get("x-forwarded-proto");
   const forwardedHost = request.headers.get("x-forwarded-host");
+  const host = request.headers.get("host");
+  const vercelUrl = process.env.VERCEL_URL;
 
-  if (process.env.NODE_ENV !== "development" && forwardedHost) {
-    return `https://${forwardedHost}`;
+  if (forwardedHost) {
+    const protocol =
+      forwardedProto && forwardedProto.length > 0
+        ? forwardedProto
+        : forwardedHost.includes("localhost")
+          ? "http"
+          : "https";
+
+    return `${protocol}://${forwardedHost}`;
+  }
+
+  if (host) {
+    const protocol =
+      forwardedProto && forwardedProto.length > 0
+        ? forwardedProto
+        : host.includes("localhost")
+          ? "http"
+          : "https";
+
+    return `${protocol}://${host}`;
+  }
+
+  if (vercelUrl) {
+    return `https://${vercelUrl}`;
   }
 
   return origin;
